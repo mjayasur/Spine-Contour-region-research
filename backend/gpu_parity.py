@@ -62,7 +62,7 @@ def decoded(kind, cpu, gpu, feeds):
         from .decoders import local_coordinates
         a, b = [local_coordinates(v[0], unique_boundary=kind == 'cervical_slope_hrnet') for v in (cpu, gpu)]
         return bool(np.max(np.abs(a-b), initial=0) <= .0125)
-    if kind == 's1':
+    if kind in ('s1', 's1_batch'):
         return bool(np.max(np.abs(cpu[1][..., :2] - gpu[1][..., :2]), initial=0) <= .05)
     if kind in ('cervical_hrnet', 'cervical_anatomical_hrnet'):
         return bool(np.array_equal(cpu[0].reshape(23, -1).argmax(1), gpu[0].reshape(23, -1).argmax(1)))
@@ -110,6 +110,7 @@ def probes(kind):
     if kind == 'cervical_detr':
         yield 'zeros', {'pixel_values': np.zeros((1, 3, 800, 800), np.float32), 'pixel_mask': np.ones((1, 800, 800), np.int64)}
     else:
+        if kind == 's1_batch': shape = (4, 3, size, size)
         if kind == 'cervical_hrnet': shape = (1, 3, 384, 384)
         if kind in ('cervical_anatomical_hrnet', 'cervical_slope_hrnet'): shape = (1, 3, 512, 384)
         yield 'zeros', {'image': np.zeros(shape, np.float32)}
@@ -126,7 +127,9 @@ def probes(kind):
         elif kind == 'cervical_hrnet':
             feed = {'image': cervical.landmark_input(image, [0, 0, 768, 768])[0]}
         elif kind == 'femoral': feed = {'image': models._femoral_input(image)}
-        elif kind == 's1': feed = {'image': models._detection_input(image)}
+        elif kind in ('s1', 's1_batch'):
+            tensor = models._detection_input(image)
+            feed = {'image': np.repeat(tensor, 4, axis=0) if kind == 's1_batch' else tensor}
         else: feed = {'image': models._segmentation_input(image)}
         yield name, feed
     if kind == 'cervical_detr':
