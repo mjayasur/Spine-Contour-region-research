@@ -225,7 +225,7 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: Spine-Contour-Preview-Windows-${{ inputs.accelerator || 'directml' }}
+          name: ${{ inputs.accelerator == 'cuda' && 'Spine-Contour-Preview-Windows-NVIDIA' || 'Spine-Contour-Preview-Windows' }}
           path: dist/Spine-Contour-Preview-Windows.exe
           compression-level: 0
 
