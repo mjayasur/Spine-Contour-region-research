@@ -1,3 +1,4 @@
+from backend import fixed_pipeline
 """HTTP routing contracts only; model accuracy is measured on real films."""
 import pytest
 from fastapi.testclient import TestClient
@@ -14,7 +15,7 @@ def test_preview_uses_classifier_and_never_runs_segmentation(monkeypatch):
         return {"body_part": None, "status": "needs_selection", "warnings": ["Preview only"]}
 
     monkeypatch.setattr(view_classifier, "detect_film", classify)
-    monkeypatch.setattr(server, "spinopelvic_prediction", lambda *_: pytest.fail("preview must not segment"))
+    monkeypatch.setattr(fixed_pipeline, "predict", lambda *_: pytest.fail("preview must not segment"))
     monkeypatch.setattr(server, "cervical_prediction", lambda *_: pytest.fail("preview must not segment"))
     response = TestClient(server.app).post('/classify-view', files={
         'file': ('contract.png', upload(), 'image/png')})

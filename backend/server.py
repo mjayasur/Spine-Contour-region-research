@@ -26,10 +26,8 @@ try:
     from .cervical_measurements import cervical_measurements_from_geometry
     from .measurement_routes import measure as global_sva_measurements_from_geometry
     from .thoracic_measurements import thoracic_measurements
-    from .models import MODEL_CHOICES, VERTEBRA_LABELS, spinopelvic_prediction
     from .utils import (
         spinopelvic_measurements_from_geometry,
-        spinopelvic_measurements_from_landmarks,
     )
 except ImportError:  # Support `uvicorn server:app` from backend/.
     import processors
@@ -41,10 +39,8 @@ except ImportError:  # Support `uvicorn server:app` from backend/.
     from cervical_measurements import cervical_measurements_from_geometry
     from measurement_routes import measure as global_sva_measurements_from_geometry
     from thoracic_measurements import thoracic_measurements
-    from models import MODEL_CHOICES, VERTEBRA_LABELS, spinopelvic_prediction
     from utils import (
         spinopelvic_measurements_from_geometry,
-        spinopelvic_measurements_from_landmarks,
     )
 
 
@@ -281,17 +277,16 @@ def _analyze(payload, modality, body_part, view, laterality,
             if body_part not in ("cervical", "lumbar", "full_spine"):
                 reasons = " ".join(detection.get("warnings", []))
                 raise ValueError(reasons or "Could not confidently identify the spine region. Choose cervical, lumbar or full spine, then segment again.")
-            if anterior_side not in ("left", "right"):
+            if anterior_side not in ("left", "right") and body_part != "full_spine":
                 anterior_side = detection.get("anterior_side")
         is_cervical = body_part == "cervical"
         is_full_spine = body_part == "full_spine"
-        landmark_only = True
         if is_cervical:
             _validate_cervical_request(modality, view, laterality, vertebra_model, femoral_model, s1_model, anterior_side)
         elif is_full_spine:
             _validate_full_spine_request(modality, view, laterality, vertebra_model, femoral_model, s1_model, anterior_side)
         elif body_part == "lumbar":
-            from .models.models import _validate_supported_input, resolve_models
+            from .models.models import _validate_supported_input
             _validate_supported_input(modality, body_part, view, laterality)
             if vertebra_model not in (None, "", "hrnet") or femoral_model not in (None, "", "unet") or s1_model not in (None, "", "keypointrcnn"):
                 raise ValueError("The fixed lumbar pipeline uses HRNet, femoral U-Net and the S1 detector")
@@ -340,23 +335,22 @@ def _analyze(payload, modality, body_part, view, laterality,
             'spacing': None, 'candidates': [], 'selected_index': None,
             'message': 'Automatic calibration unavailable. Review the reference in Image calibration.',
         }
-    if landmark_only:
-        runtime.report("measuring", "Calculating global, cervical and lumbar measurements" if is_full_spine
-                       else "Calculating C2–C7 Cobb angle and sagittal vertical axis")
-        spacing = image_calibration.get("spacing")
-        # Calibration has already checked the digest/dimensions of the untouched
-        # upload, and landmark models restore every point to that same frame.
-        geometry = {**prediction["landmarks"], "region": body_part,
-                    "anterior_side": prediction["landmarks"].get("anterior_side") or anterior_side,
-                    "source_sha256": image_calibration["source_sha256"],
-                    "image_width": int(pixel_array.shape[1]), "image_height": int(pixel_array.shape[0]),
-                    "coordinate_space": "original_image",
-                    "pixel_spacing": [spacing["row_mm"], spacing["column_mm"]] if spacing else None,
-                    "spacing_source": spacing.get("source") if spacing else None}
-        try:
-            analysis = global_sva_measurements_from_geometry(geometry)
-        except (AttributeError, TypeError, ValueError) as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
+    runtime.report("measuring", "Calculating global, cervical and lumbar measurements" if is_full_spine
+                   else "Calculating regional spine measurements")
+    spacing = image_calibration.get("spacing")
+    # Calibration has already checked the digest/dimensions of the untouched
+    # upload, and landmark models restore every point to that same frame.
+    geometry = {**prediction["landmarks"], "region": body_part,
+                "anterior_side": prediction["landmarks"].get("anterior_side") or anterior_side,
+                "source_sha256": image_calibration["source_sha256"],
+                "image_width": int(pixel_array.shape[1]), "image_height": int(pixel_array.shape[0]),
+                "coordinate_space": "original_image",
+                "pixel_spacing": [spacing["row_mm"], spacing["column_mm"]] if spacing else None,
+                "spacing_source": spacing.get("source") if spacing else None}
+    try:
+        analysis = global_sva_measurements_from_geometry(geometry)
+    except (AttributeError, TypeError, ValueError) as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
     # Store model, crop, scale and resource provenance alongside the measurements.
     qc = {**prediction.get("qc", {}), **analysis.get("qc", {}),
           "models": prediction["models"], "model_versions": model_versions(prediction["models"]),
@@ -368,18 +362,17 @@ def _analyze(payload, modality, body_part, view, laterality,
                          "providers": runtime.providers(),
                          "batches": runtime.batches(),
                          "processor": runtime.processor_record(),
-                         "crop_localizer": False if is_cervical else True if is_full_spine else runtime.options().crop_localizer,
+                         "crop_localizer": not is_cervical,
                          "crop_method": "not_applicable" if is_cervical else runtime.options().crop_method,
-                         "toolbar_removal": False if landmark_only else runtime.options().toolbar_removal,
+                         "toolbar_removal": False,
                          "search_batch": runtime.options().search_batch}}
-    if landmark_only:
-        # Landmark pipelines return the original
-        # image. Retain user preferences separately from
-        # the processing actually applied by this model.
-        qc["processing"]["requested_crop_localizer"] = runtime.options().crop_localizer
-        if is_cervical:
-            qc["processing"]["requested_crop_method"] = runtime.options().crop_method
-        qc["processing"]["requested_toolbar_removal"] = runtime.options().toolbar_removal
+    # Landmark pipelines return the original
+    # image. Retain user preferences separately from
+    # the processing actually applied by this model.
+    qc["processing"]["requested_crop_localizer"] = runtime.options().crop_localizer
+    if is_cervical:
+        qc["processing"]["requested_crop_method"] = runtime.options().crop_method
+    qc["processing"]["requested_toolbar_removal"] = runtime.options().toolbar_removal
     for field in ("provenance", "warnings"):
         if field in prediction:
             qc[field] = prediction[field]
@@ -394,7 +387,7 @@ def _analyze(payload, modality, body_part, view, laterality,
     runtime.report("complete", "Measurements ready")
     # No prediction places T1 or T4; the keys are present, null, until a person places them.
     analysis = _with_thoracic({}, analysis)
-    return {**encoded, **analysis, "qc": qc, "labels": {} if landmark_only else VERTEBRA_LABELS,
+    return {**encoded, **analysis, "qc": qc, "labels": {},
             "calibration": image_calibration}
 
 

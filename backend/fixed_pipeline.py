@@ -156,6 +156,8 @@ def predict(raw, anterior_side=None, *, localization=None, detection_evidence=No
     raw = np.asarray(raw)
     if raw.ndim != 2 or not raw.size or not np.isfinite(raw).all():
         raise ValueError('Expected a finite grayscale radiograph')
+    if min(raw.shape) < 32 or np.ptp(raw.astype(np.float64)) == 0:
+        raise ValueError('No usable image content; choose a radiograph with visible anatomy')
     if region == 'cervical':
         window = stages.cervical_locator(raw)
         neck = cervical_geometry(raw, window, anterior_side, stages.cervical_graph, stages.cervical_decoder)

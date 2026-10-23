@@ -1,3 +1,4 @@
+from backend import fixed_pipeline
 import base64
 import hashlib
 import io
@@ -36,7 +37,7 @@ def stub_prediction(monkeypatch, observed, landmarks=None):
                 "provenance": {"training_dataset": "CSXA"},
                 "warnings": ["Review predicted cervical landmarks."]}
     monkeypatch.setattr(server, "cervical_prediction", predict)
-    monkeypatch.setattr(server, "spinopelvic_prediction", lambda *_: pytest.fail("Lumbar inference called"))
+    monkeypatch.setattr(fixed_pipeline, "predict", lambda *_: pytest.fail("Lumbar inference called"))
 
 
 @pytest.mark.parametrize("route", ["/predict", "/predict-stream"])

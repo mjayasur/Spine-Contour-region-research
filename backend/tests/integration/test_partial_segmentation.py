@@ -11,12 +11,12 @@ from backend.models import models
 from backend.tests.unit.test_partial_prediction import frame
 
 
-@pytest.mark.parametrize('model', ['unet', 'hrnet'])
+@pytest.mark.parametrize('model', ['hrnet'])
 @pytest.mark.parametrize('levels,s1', [(['L1'], None), (['L2', 'L4'], [[200, 650], [400, 630]])])
 def test_predict_measure_and_json_round_trip_preserve_partial_results(monkeypatch, model, levels, s1):
-    monkeypatch.setattr(framing, 'locate', lambda *args: None)
-    monkeypatch.setattr(models, '_read_frame', lambda *args: frame(levels, None if s1 is None else np.array(s1)))
-    calibration = {'version': 1, 'status': 'unavailable', 'spacing': None}
+    from backend.tests.integration.fixed_contract import stub
+    stub(monkeypatch, levels, s1)
+    calibration = {'version': 1, 'status': 'unavailable', 'spacing': None, 'source_sha256': 'test'}
     monkeypatch.setattr(server, 'calibration_from_payload', lambda *args, **kwargs: dict(calibration))
     image = io.BytesIO()
     Image.fromarray(np.zeros((768, 768), np.uint8)).save(image, format='PNG')
@@ -28,12 +28,12 @@ def test_predict_measure_and_json_round_trip_preserve_partial_results(monkeypatc
     result = response.json()
     assert result['calibration'] == calibration
     assert result['qc']['coverage']['partial'] is True
-    assert result['qc']['models']['vertebrae'] == model
+    assert result['qc']['models']['vertebrae'] == 'seven-measurements-20261023'
     assert set(result['geometry']['vertebrae']) == set(levels)
     assert result['geometry']['femoral_circles'] == []
     assert result['measurements']['PI'] is None
     mask = np.array(Image.open(io.BytesIO(base64.b64decode(result['mask_png']))))
-    assert set(np.unique(mask)) == {0, *(19 + int(level[1]) for level in levels)}
+    assert set(np.unique(mask)) == {0}
     geometry = result['geometry']
     first = levels[0]
     geometry['vertebrae'][first]['superior'][0][1] += 5

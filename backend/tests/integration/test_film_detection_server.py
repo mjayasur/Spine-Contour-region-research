@@ -60,14 +60,12 @@ def test_auto_dispatches_regional_models_and_persists_resolved_region(monkeypatc
     monkeypatch.setattr(server, "calibration_from_payload", lambda payload, **_: calibration(payload))
     if region == "cervical":
         def cervical(pixels, anterior_side, model):
-            assert anterior_side == "left" and model == "cervical_anatomical_hrnet"
+            assert anterior_side == "left" and model == "cervical_slope_hrnet"
             return prediction(pixels, {"region": "cervical", "anterior_side": "left", "vertebrae": {}})
         monkeypatch.setattr(server, "cervical_prediction", cervical)
     else:
-        def lumbar(pixels, modality, body_part, view, laterality, models):
-            assert body_part == "lumbar" and not any(models.values())
-            return prediction(pixels, {"vertebrae": {}, "S1": {"superior": [[20, 80], [40, 90]]}})
-        monkeypatch.setattr(server, "spinopelvic_prediction", lumbar)
+        from backend.tests.integration.fixed_contract import stub
+        stub(monkeypatch, (), [[20, 80], [40, 90]])
     response = TestClient(server.app).post("/predict", data={
         "modality": "xray", "body_part": "auto", "view": "lateral", "anterior_side": "left",
     }, files={"file": ("synthetic.png", upload(), "image/png")})

@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
-from backend import calibration, server
+from backend import calibration, server, fixed_pipeline
 
 
 def image_bytes():
@@ -23,20 +23,20 @@ def image_bytes():
 
 @pytest.fixture
 def client(monkeypatch):
-    def cropped_prediction(pixels, *_):
+    def cropped_prediction(pixels, *_, **kwargs):
         image = pixels[:100, :100]
         return {'image': image, 'mask': np.zeros_like(image), 'femoral_mask': np.zeros_like(image),
                 'landmarks': {'vertebrae': {}, 'S1': {'superior': []}},
                 'models': {}, 'framing': {'window': [0, 0, 100, 100]}}
-    monkeypatch.setattr(server, 'spinopelvic_prediction', cropped_prediction)
-    monkeypatch.setattr(server, 'spinopelvic_measurements_from_landmarks',
-                        lambda *_: {'measurements': {'SS': 30}, 'geometry': {}})
+    monkeypatch.setattr(fixed_pipeline, 'predict', cropped_prediction)
+    monkeypatch.setattr(server, 'global_sva_measurements_from_geometry',
+                        lambda g: {'measurements': {'SS': 30}, 'geometry': g})
     return TestClient(server.app)
 
 
 def predict(client, payload, cached=None):
     return client.post('/predict', files={'file': ('film.png', payload, 'image/png')},
-                       data={'modality': 'xray', 'body_part': 'lumbar',
+                       data={'modality': 'xray', 'body_part': 'lumbar', 'view': 'lateral',
                              **({'calibration': json.dumps(cached)} if cached else {})})
 
 
@@ -112,7 +112,7 @@ def test_manual_fallback_survives_calibration_reopen_and_segmentation(client, mo
         assert reopened['review_revision'] == 3
         assert reopened['candidates'] == saved['candidates']
     response = client.post(route, files={'file': ('renamed.png', payload, 'image/png')},
-                           data={'modality': 'xray', 'body_part': 'lumbar', 'calibration': json.dumps(saved)})
+                           data={'modality': 'xray', 'body_part': 'lumbar', 'view': 'lateral', 'calibration': json.dumps(saved)})
     assert response.status_code == 200
     result = (json.loads(response.text.splitlines()[-1])['result']
               if route.endswith('stream') else response.json())
@@ -132,7 +132,7 @@ def test_manual_reference_from_another_image_is_never_reused(client, monkeypatch
                               'status': 'accepted'}])
     monkeypatch.setattr(calibration, 'extract', lambda *_: {'measurements': []})
     response = client.post(route, files={'file': ('same-name.png', payload, 'image/png')},
-                           data={'modality': 'xray', 'body_part': 'lumbar', 'calibration': json.dumps(saved)})
+                           data={'modality': 'xray', 'body_part': 'lumbar', 'view': 'lateral', 'calibration': json.dumps(saved)})
     assert response.status_code == 200
     result = (json.loads(response.text.splitlines()[-1])['result']
               if route.endswith('stream') else response.json())

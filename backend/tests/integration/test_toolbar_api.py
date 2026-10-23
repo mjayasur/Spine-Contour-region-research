@@ -16,7 +16,7 @@ from backend.tests.unit.test_toolbar import screenshot
 @pytest.mark.parametrize('mode', ['standard', 'low-memory'])
 @pytest.mark.parametrize('localizer', [True, False])
 @pytest.mark.parametrize('route', ['/predict', '/predict-stream'])
-def test_toolbar_setting_crops_prediction_but_keeps_original_calibration(monkeypatch, mode, localizer, route):
+def test_fixed_pipeline_keeps_source_pixels_and_calibration_with_toolbar_preference(monkeypatch, mode, localizer, route):
     image = screenshot()
     buffer = io.BytesIO()
     Image.fromarray(image).save(buffer, format='PNG')
@@ -27,8 +27,8 @@ def test_toolbar_setting_crops_prediction_but_keeps_original_calibration(monkeyp
                   candidates=[{'value_mm': 40, 'length_px': 80, 'endpoints': [[320, 40], [320, 120]],
                                'raw_text': '40 mm', 'status': 'accepted'}])
     monkeypatch.setattr(calibration, 'extract', lambda *_: pytest.fail('Original source cache should still match'))
-    monkeypatch.setattr(framing, 'locate', lambda *_: None)
-    monkeypatch.setattr(models, '_read_frame', lambda *_: frame(['L1']))
+    from backend.tests.integration.fixed_contract import stub
+    stub(monkeypatch)
     client = TestClient(server.app)
     # ON followed by OFF exercises request isolation in the same worker.
     for enabled in [True, False]:
@@ -41,19 +41,19 @@ def test_toolbar_setting_crops_prediction_but_keeps_original_calibration(monkeyp
             events = [json.loads(line) for line in response.text.splitlines()]
             assert events[-1]['type'] == 'result', events[-1]
             result = events[-1]['result']
-            assert any(e.get('stage') == 'toolbar' for e in events) == enabled
+            assert any(e.get('stage') == 'toolbar' for e in events) is False
         else:
             result = response.json()
         for field in ('image_png', 'mask_png', 'femoral_mask_png'):
             with Image.open(io.BytesIO(base64.b64decode(result[field]))) as png:
-                assert png.size == (951, 779 if enabled else 801)
+                assert png.size == (951, 801)
         scale = result['calibration']
         assert scale['height'] == 801 and scale['width'] == 951
         assert scale['source_sha256'] == cached['source_sha256']
         assert scale['status'] == 'corrected' and scale['spacing']['row_mm'] == .5
         assert scale['candidates'][0]['endpoints'] == [[320, 40], [320, 120]]
-        assert result['qc']['processing']['toolbar_removal'] == enabled
-        assert result['qc']['framing']['toolbar_removal']['removed_bottom_px'] == (22 if enabled else 0)
+        assert result['qc']['processing']['toolbar_removal'] is False
+        assert result['qc']['processing']['requested_toolbar_removal'] == enabled
         assert result['measurements']['PI'] is None and result['geometry']['femoral_circles'] == []
         assert list(result['geometry']['vertebrae']) == ['L1']
 

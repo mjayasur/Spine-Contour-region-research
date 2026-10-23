@@ -1,3 +1,4 @@
+from backend import fixed_pipeline
 """Full-spine API checks using generated pixels and mocked inference only."""
 
 import base64
@@ -43,7 +44,7 @@ def stub_prediction(monkeypatch, observed, landmarks=None):
         pytest.fail("Regional inference must not be dispatched for full_spine")
     monkeypatch.setattr(server, "full_spine_prediction", predict)
     monkeypatch.setattr(server, "cervical_prediction", unexpected)
-    monkeypatch.setattr(server, "spinopelvic_prediction", unexpected)
+    monkeypatch.setattr(fixed_pipeline, "predict", unexpected)
 
 
 def result_from(response, route):

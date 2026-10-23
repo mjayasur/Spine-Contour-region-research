@@ -6,7 +6,7 @@ opencv-python-headless
 Pillow
 pydicom
 python-multipart
-onnxruntime-gpu[cuda,cudnn]==1.24.4
+onnxruntime-gpu[cuda,cudnn]==1.23.2
 uvicorn[standard]
 scipy
 pytesseract

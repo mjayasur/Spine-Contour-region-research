@@ -17,12 +17,12 @@ def upload():
     return {'file': ('partial.png', image.getvalue(), 'image/png')}
 
 
-@pytest.mark.parametrize('model', ['unet', 'hrnet'])
+@pytest.mark.parametrize('model', ['hrnet'])
 @pytest.mark.parametrize('localizer', [True, False])
 def test_stream_matches_legacy_prediction_for_partial_anatomy_in_both_modes(monkeypatch, model, localizer):
-    monkeypatch.setattr(framing, 'locate', lambda *args: None)
-    monkeypatch.setattr(models, '_read_frame', lambda *args: frame(['L1']))
-    monkeypatch.setattr(server, 'calibration_from_payload', lambda *args, **kwargs: {'status': 'unavailable'})
+    from backend.tests.integration.fixed_contract import stub
+    stub(monkeypatch)
+    monkeypatch.setattr(server, 'calibration_from_payload', lambda *a, **k: {'status': 'unavailable', 'source_sha256': 'test'})
     data = {'modality': 'xray', 'body_part': 'lumbar', 'view': 'lateral', 'vertebra_model': model,
             'crop_localizer': str(localizer).lower()}
     client = TestClient(server.app)
@@ -37,15 +37,15 @@ def test_stream_matches_legacy_prediction_for_partial_anatomy_in_both_modes(monk
         for key in ['measurements', 'geometry', 'image_png', 'mask_png', 'femoral_mask_png', 'calibration']:
             assert result[key] == standard[key]
         assert result['qc']['processing']['mode'] == mode
-        assert result['qc']['processing']['crop_localizer'] == localizer
+        assert result['qc']['processing']['crop_localizer'] is True
         assert result['qc']['processing']['runtime'] == 'onnxruntime'
         assert result['qc']['processing']['processor'] == {'requested': 'cpu', 'resolved': 'cpu', 'name': 'CPU', 'note': None}
-        assert result['qc']['framing']['searched'] == localizer
+        assert result['qc']['framing']['searched'] is True
         assert result['qc']['coverage']['partial']
         assert result['geometry']['femoral_circles'] == []
         assert result['measurements']['PI'] is None
         stages = [e['stage'] for e in events if e['type'] == 'progress']
-        assert stages.index('decoding') < stages.index('landmarks') < stages.index('measuring') < stages.index('calibration') < stages.index('complete')
+        assert stages.index('decoding') < stages.index('landmarks') < stages.index('calibration') < stages.index('measuring') < stages.index('complete')
 
 
 @pytest.mark.parametrize('mode,threads', [('unknown', 2), ('low-memory', 0), ('low-memory', 10)])

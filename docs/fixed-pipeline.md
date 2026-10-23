@@ -19,7 +19,8 @@ replace the anatomical measurement predictors in the table.
 ## Stage contracts
 
 `Stages` supplies replaceable lumbar and cervical locators, cervical candidate
-generation, S1 detection, femoral segmentation, and predictor graph identifiers.
+generation, S1 detection, femoral segmentation, predictor graph identifiers,
+and explicit decoder callables.
 Lumbar locators receive a grayscale image in canonical anterior-left orientation
 and return a crop record with a `window` or `None`. Rectangles use half-open
 `left, top, right, bottom` pixel coordinates. Cervical regional locators return
@@ -41,8 +42,9 @@ The ordinary DirectML and macOS CPU runtimes remain supported.
 
 CUDA sessions budget 92% of currently free device memory. Dynamic HRNet batches
 start with all available crop candidates, halve after allocation failure, and
-retry the same rows in order. A one-row failure reaches the request boundary,
-which releases model sessions and retries the whole film on CPU. Other GPU
+retry the same rows in order. A one-row failure releases inactive model sessions and retries the stage on
+GPU once. Persistent failure reaches the request boundary and retries the
+whole film on CPU. Other GPU
 execution errors also reach that boundary. Cancellation is checked between
 batches. Batch sizes and OOM retries are recorded in `qc.processing.batches`.
 
