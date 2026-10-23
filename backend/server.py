@@ -24,7 +24,7 @@ try:
     from .decode import decode_film
     from .calibration import calibration_from_payload, learn_profile, validate_profile
     from .cervical_measurements import cervical_measurements_from_geometry
-    from .global_sva_measurements import global_sva_measurements_from_geometry
+    from .measurement_routes import measure as global_sva_measurements_from_geometry
     from .thoracic_measurements import thoracic_measurements
     from .models import MODEL_CHOICES, VERTEBRA_LABELS, spinopelvic_prediction
     from .utils import (
@@ -39,7 +39,7 @@ except ImportError:  # Support `uvicorn server:app` from backend/.
     from decode import decode_film
     from calibration import calibration_from_payload, learn_profile, validate_profile
     from cervical_measurements import cervical_measurements_from_geometry
-    from global_sva_measurements import global_sva_measurements_from_geometry
+    from measurement_routes import measure as global_sva_measurements_from_geometry
     from thoracic_measurements import thoracic_measurements
     from models import MODEL_CHOICES, VERTEBRA_LABELS, spinopelvic_prediction
     from utils import (
@@ -49,7 +49,7 @@ except ImportError:  # Support `uvicorn server:app` from backend/.
 
 
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
-CERVICAL_MODEL = "cervical_anatomical_hrnet"
+CERVICAL_MODEL = "cervical_slope_hrnet"
 FULL_SPINE_MODEL = "dual_hrnet"
 
 app = FastAPI(title="Spine-Contour", version="0.1.0")
@@ -90,21 +90,17 @@ def _decode_grayscale(payload: bytes) -> np.ndarray:
 
 
 def cervical_prediction(pixel_array, anterior_side, model=CERVICAL_MODEL):
-    # Keep the cervical runtime lazy so lumbar launches never require its assets.
-    if __package__:
-        from .models.cervical_anatomical import cervical_prediction as predict_cervical
-    else:
-        from models.cervical_anatomical import cervical_prediction as predict_cervical
-    return predict_cervical(pixel_array, anterior_side, model=model)
+    from .fixed_pipeline import predict
+    return predict(pixel_array, anterior_side, region="cervical")
 
 
 def full_spine_prediction(pixel_array, anterior_side, model=FULL_SPINE_MODEL, **options):
     # Existing regional inference does not import or initialize this pipeline.
     if __package__:
-        from .models.full_spine import full_spine_prediction as predict_full_spine
+        from .fixed_pipeline import predict as predict_full_spine
     else:
-        from models.full_spine import full_spine_prediction as predict_full_spine
-    return predict_full_spine(pixel_array, anterior_side, model=model, **options)
+        from fixed_pipeline import predict as predict_full_spine
+    return predict_full_spine(pixel_array, anterior_side, **options)
 
 
 def detect_film(pixel_array, anterior_side=None):
@@ -289,37 +285,29 @@ def _analyze(payload, modality, body_part, view, laterality,
                 anterior_side = detection.get("anterior_side")
         is_cervical = body_part == "cervical"
         is_full_spine = body_part == "full_spine"
-        landmark_only = is_cervical or is_full_spine
+        landmark_only = True
         if is_cervical:
-            _validate_cervical_request(modality, view, laterality, vertebra_model,
-                                      femoral_model, s1_model, anterior_side)
-            prediction = cervical_prediction(pixel_array, requested_anterior_side, model=vertebra_model or CERVICAL_MODEL)
+            _validate_cervical_request(modality, view, laterality, vertebra_model, femoral_model, s1_model, anterior_side)
         elif is_full_spine:
-            _validate_full_spine_request(modality, view, laterality, vertebra_model,
-                                        femoral_model, s1_model, anterior_side)
-            options = ({"detection_evidence": detection["_orientation_evidence"]}
-                       if detection and "_orientation_evidence" in detection else {})
-            prediction = full_spine_prediction(pixel_array, requested_anterior_side,
-                                               model=vertebra_model or FULL_SPINE_MODEL, **options)
+            _validate_full_spine_request(modality, view, laterality, vertebra_model, femoral_model, s1_model, anterior_side)
+        elif body_part == "lumbar":
+            from .models.models import _validate_supported_input, resolve_models
+            _validate_supported_input(modality, body_part, view, laterality)
+            if vertebra_model not in (None, "", "hrnet") or femoral_model not in (None, "", "unet") or s1_model not in (None, "", "keypointrcnn"):
+                raise ValueError("The fixed lumbar pipeline uses HRNet, femoral U-Net and the S1 detector")
         else:
-            prediction = spinopelvic_prediction(
-                pixel_array,
-                modality,
-                body_part,
-                view,
-                laterality,
-                {"vertebrae": vertebra_model, "femoral": femoral_model, "s1": s1_model},
-            )
+            raise ValueError("Unsupported spine region")
+        from .fixed_pipeline import predict as predict_fixed
+        evidence = detection.get("_orientation_evidence") if detection else None
+        if is_cervical:
+            prediction = cervical_prediction(pixel_array, anterior_side, model=CERVICAL_MODEL)
+        elif is_full_spine:
+            options = {"detection_evidence": evidence} if evidence else {}
+            prediction = full_spine_prediction(pixel_array, anterior_side, model=FULL_SPINE_MODEL, **options)
+        else:
+            prediction = predict_fixed(pixel_array, anterior_side, region=body_part, detection_evidence=evidence)
         if runtime.options().low_memory:
             release_models()
-        if not landmark_only:
-            runtime.report("measuring", "Fitting femoral heads and calculating available measurements")
-            analysis = spinopelvic_measurements_from_landmarks(
-                prediction["landmarks"]["vertebrae"],
-                prediction["landmarks"]["S1"]["superior"],
-                prediction["femoral_mask"],
-                prediction["mask"],
-            )
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
 
@@ -358,7 +346,7 @@ def _analyze(payload, modality, body_part, view, laterality,
         spacing = image_calibration.get("spacing")
         # Calibration has already checked the digest/dimensions of the untouched
         # upload, and landmark models restore every point to that same frame.
-        geometry = {**prediction["landmarks"], "region": "full_spine" if is_full_spine else "cervical",
+        geometry = {**prediction["landmarks"], "region": body_part,
                     "anterior_side": prediction["landmarks"].get("anterior_side") or anterior_side,
                     "source_sha256": image_calibration["source_sha256"],
                     "image_width": int(pixel_array.shape[1]), "image_height": int(pixel_array.shape[0]),
@@ -366,8 +354,7 @@ def _analyze(payload, modality, body_part, view, laterality,
                     "pixel_spacing": [spacing["row_mm"], spacing["column_mm"]] if spacing else None,
                     "spacing_source": spacing.get("source") if spacing else None}
         try:
-            analysis = (global_sva_measurements_from_geometry(geometry) if is_full_spine
-                        else cervical_measurements_from_geometry(geometry))
+            analysis = global_sva_measurements_from_geometry(geometry)
         except (AttributeError, TypeError, ValueError) as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
     # Store model, crop, scale and resource provenance alongside the measurements.
@@ -379,6 +366,7 @@ def _analyze(payload, modality, body_part, view, laterality,
                          "cpu_threads": runtime.options().inference_threads,
                          "runtime": "onnxruntime", "runtime_version": ort.__version__,
                          "providers": runtime.providers(),
+                         "batches": runtime.batches(),
                          "processor": runtime.processor_record(),
                          "crop_localizer": False if is_cervical else True if is_full_spine else runtime.options().crop_localizer,
                          "crop_method": "not_applicable" if is_cervical else runtime.options().crop_method,
@@ -425,7 +413,7 @@ async def measure(geometry: dict[str, object]) -> dict[str, object]:
     try:
         if geometry.get("region") == "cervical":
             result = await run_in_threadpool(cervical_measurements_from_geometry, geometry)
-        elif geometry.get("region") == "full_spine":
+        elif geometry.get("region") == "full_spine" or geometry.get("pipeline_revision"):
             result = await run_in_threadpool(global_sva_measurements_from_geometry, geometry)
         elif geometry.get("region") not in (None, "lumbar"):
             raise ValueError("Unknown geometry region; available: lumbar, cervical, full_spine")
@@ -455,7 +443,7 @@ def models(body_part: str = "lumbar") -> dict[str, list[str]]:
         return {"vertebrae": [FULL_SPINE_MODEL], "femoral": [], "s1": []}
     if body_part.strip().lower() != "lumbar":
         raise HTTPException(status_code=422, detail="Unknown body part; available: lumbar, cervical, full_spine")
-    return {structure: list(names) for structure, names in MODEL_CHOICES.items()}
+    return {"vertebrae": ["hrnet"], "femoral": ["unet"], "s1": ["keypointrcnn"]}
 
 
 @app.get("/processors", summary="The CPU and each GPU the bundled runtime can run the models on")

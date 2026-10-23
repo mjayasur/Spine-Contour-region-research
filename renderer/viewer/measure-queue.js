@@ -52,7 +52,7 @@ export function createMeasureQueue({ measure, getState, setState, showToast, deb
     if (!study || !geometry) { discardDraft(studyId); return; }
     try {
       const result = await measure(geometry.region === 'cervical'
-        ? cervicalMeasureGeometry(geometry, study.calibration) : geometry.region === 'full_spine'
+        ? cervicalMeasureGeometry(geometry, study.calibration) : (geometry.region === 'full_spine' || geometry.pipeline_revision)
         ? globalSvaMeasureGeometry(geometry, study.calibration) : {
         vertebrae: geometry.vertebrae,
         s1_superior: geometry.s1_superior,

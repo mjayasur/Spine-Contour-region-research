@@ -5,13 +5,12 @@
 // Only the vertebral corners have a choice. The femoral heads and the S1 endplate each have
 // one model, and the Settings panel shows them as fixed so the user can see what runs.
 export const VERTEBRA_MODELS = Object.freeze([
-  Object.freeze({ id: 'unet', label: 'U-Net' }),
   Object.freeze({ id: 'hrnet', label: 'HRNet' }),
 ]);
 export const FEMORAL_MODELS = Object.freeze([Object.freeze({ id: 'unet', label: 'U-Net' })]);
 export const S1_MODELS = Object.freeze([Object.freeze({ id: 'keypointrcnn', label: 'Keypoint R-CNN' })]);
 
-export const DEFAULT_MODELS = Object.freeze({ vertebrae: 'unet', femoral: 'unet', s1: 'keypointrcnn' });
+export const DEFAULT_MODELS = Object.freeze({ vertebrae: 'hrnet', femoral: 'unet', s1: 'keypointrcnn' });
 
 const BY_STRUCTURE = { vertebrae: VERTEBRA_MODELS, femoral: FEMORAL_MODELS, s1: S1_MODELS };
 
@@ -21,7 +20,8 @@ export function isVertebraModel(id) {
 
 // The display label for a model id, or null when it is not one this build offers.
 export function modelLabel(structure, id) {
-  if (structure === 'vertebrae' && ['cervical_hrnet', 'cervical_anatomical_hrnet', 'dual_hrnet'].includes(id)) return 'HRNET';
+  if (structure === 'vertebrae' && ['seven-measurements-20261023', 'cervical_slope_hrnet', 'cervical_hrnet', 'cervical_anatomical_hrnet', 'dual_hrnet'].includes(id)) return 'HRNET';
+  if (structure === 'vertebrae' && id === 'unet') return 'U-Net'; // Stored historical provenance.
   const options = BY_STRUCTURE[structure];
   if (!options) return null;
   const found = options.find((model) => model.id === id);

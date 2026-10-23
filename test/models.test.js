@@ -6,11 +6,11 @@ import {
 } from '../renderer/data/models.js';
 import { getState } from '../renderer/store.js';
 
-test('only the vertebrae offer a choice; the other structures have one model each', () => {
-  assert.equal(VERTEBRA_MODELS.length, 2);
+test('the production pipeline fixes one model per structure', () => {
+  assert.equal(VERTEBRA_MODELS.length, 1);
   assert.equal(FEMORAL_MODELS.length, 1);
   assert.equal(S1_MODELS.length, 1);
-  assert.deepEqual(VERTEBRA_MODELS.map((m) => m.id), ['unet', 'hrnet']);
+  assert.deepEqual(VERTEBRA_MODELS.map((m) => m.id), ['hrnet']);
 });
 
 test('the default choice is offered for every structure and matches the store', () => {

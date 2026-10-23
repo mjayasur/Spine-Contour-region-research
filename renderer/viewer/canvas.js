@@ -1,3 +1,4 @@
+import { measurementGeometry } from '../data/measurement-sources.js';
 import { segmentalColumns, segmentalEndplates } from '../data/segmental.js';
 import { CERVICAL_LEVELS } from '../data/cervical.js';
 import { LEVELS, FEMORAL_SIDES } from './geometry.js';
@@ -254,6 +255,7 @@ function beyondAnterior(sa, sp) {
 // black space around the film and scale with it; no measurement text is drawn on the canvas.
 // Every selectedLevel value is handled explicitly; anything else has no label.
 export function constructionLabel(geometry, selectedLevel, measurements) {
+  geometry = measurementGeometry(geometry, selectedLevel === 'GLOBAL_SVA' ? 'global_sva' : selectedLevel === 'PT' ? 'pelvic_tilt' : null);
   if (!geometry || !selectedLevel || !measurements) return null;
   if (selectedLevel.startsWith('SEG_')) {
     const plates = segmentalEndplates(geometry, selectedLevel);
@@ -340,6 +342,7 @@ function strokeReference(ctx, from, to) {
 }
 
 function drawSelectedMeasurement(ctx, canvas, geometry, selectedLevel, measurements) {
+  geometry = measurementGeometry(geometry, selectedLevel === 'GLOBAL_SVA' ? 'global_sva' : selectedLevel === 'PT' ? 'pelvic_tilt' : null);
   if (!selectedLevel || !measurements) return;
   // The same dependencies gate the caption and its construction.
   if (!constructionLabel(geometry, selectedLevel, measurements)) return;
@@ -788,6 +791,7 @@ export function drawLevelEditor(ctx, canvas, editor, opts) {
 // Returns the label plates drawn (drawLevelEditor's return value) in edit mode, and none (an empty array) outside it,
 // where no plate is drawn.
 export function drawDynamicLayer(ctx, canvas, geometry, opts) {
+  if (!opts?.editor) geometry = measurementGeometry(geometry, opts?.selectedLevel === 'GLOBAL_SVA' ? 'global_sva' : opts?.selectedLevel === 'PT' ? 'pelvic_tilt' : null);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   if (opts?.editor) {
     // (2026-10-10, level editor) The editor draws every level itself, so the region outlines, the S1 line, the C7

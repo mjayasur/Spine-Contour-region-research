@@ -229,13 +229,15 @@ def lumbar_windows(window, shape):
                    for dx, dy, scale in variants})
 
 
-def _lumbar_candidates(raw, _found=None, *, force_search=False):
+def _lumbar_candidates(raw, _found=None, *, force_search=False, located=Ellipsis):
     # Existing image-only sliding detector establishes a lumbosacral crop.
     learned_boxes = []
     if runtime.options().crop_method == "model" and not force_search:
         learned_boxes = learned_region.boxes(
             learned_region.proposals(raw) if _found is None else _found, "lumbar", raw.shape, limit=3)
-    if learned_boxes:
+    if located is not Ellipsis:
+        pass
+    elif learned_boxes:
         located = {"window": learned_boxes[0], "source": "crop_detector"}
     elif runtime.options().crop_method == "model" and not force_search:
         located = None

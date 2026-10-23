@@ -1,3 +1,4 @@
+import { measurementGeometry } from './measurement-sources.js';
 import { boundCalibration, studyRegion, validAnteriorSide } from './cervical.js';
 
 export const GLOBAL_SVA_COLUMNS = [
@@ -10,7 +11,7 @@ export const GLOBAL_SVA_COLUMNS = [
 export function globalSvaMeasurements(study) {
   const values = { region: 'full_spine', GLOBAL_SVA_PX: null, GLOBAL_SVA_MM: null };
   if (studyRegion(study) !== 'full_spine' || !study?.geometry) return values;
-  const g = study.geometry;
+  const g = measurementGeometry(study.geometry, 'global_sva');
   const point = p => Array.isArray(p) && p.length === 2 && p.every(Number.isFinite)
     && p[0] >= 0 && p[1] >= 0 && (!g.image_width || p[0] < g.image_width)
     && (!g.image_height || p[1] < g.image_height);

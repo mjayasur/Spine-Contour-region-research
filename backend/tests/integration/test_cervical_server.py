@@ -31,7 +31,7 @@ def stub_prediction(monkeypatch, observed, landmarks=None):
         runtime.report("cervical_landmarks", "Finding C2–C7 landmarks")
         return {"image": pixels, "mask": np.zeros_like(pixels), "femoral_mask": np.zeros_like(pixels),
                 "landmarks": geometry() if landmarks is None else landmarks,
-                "models": {"cervical": "cervical_anatomical_hrnet", "detector": "cervical_detr"},
+                "models": {"cervical": "cervical_slope_hrnet", "detector": "cervical_detr"},
                 "framing": {"window": [10, 5, 70, 95], "coordinate_space": "original_image"},
                 "provenance": {"training_dataset": "CSXA"},
                 "warnings": ["Review predicted cervical landmarks."]}
@@ -53,7 +53,7 @@ def test_cervical_prediction_preserves_source_coords_calibration_and_provenance(
     monkeypatch.setattr(server, "calibration_from_payload", calibrate)
     response = TestClient(server.app).post(route, data={
         "modality": "xray", "body_part": "cervical", "view": "lateral",
-        "vertebra_model": "cervical_anatomical_hrnet", "anterior_side": "left", "processing_mode": mode,
+        "vertebra_model": "cervical_slope_hrnet", "anterior_side": "left", "processing_mode": mode,
         "crop_localizer": "false", "toolbar_removal": "true",
         "calibration": json.dumps({"test": "original-upload-cache"}),
     }, files={"file": ("cervical.png", payload, "image/png")})
@@ -68,7 +68,7 @@ def test_cervical_prediction_preserves_source_coords_calibration_and_provenance(
         result = response.json()
     assert len(observed) == 1
     assert observed[0][0].shape == (100, 80)
-    assert observed[0][1:] == ("left", "cervical_anatomical_hrnet")
+    assert observed[0][1:] == ("left", "cervical_slope_hrnet")
     assert result["geometry"]["c2_centroid"] == [30, 10]
     assert result["geometry"]["vertebrae"]["C7"]["superior"][1] == [40, 50]
     assert result["geometry"]["pixel_spacing"] == [.5, .25]
@@ -77,7 +77,7 @@ def test_cervical_prediction_preserves_source_coords_calibration_and_provenance(
     assert result["measurements"]["C2C7_COBB"] == pytest.approx(63.4349488)
     assert result["calibration"]["width"] == 80
     assert result["calibration"]["height"] == 100
-    assert result["qc"]["models"]["cervical"] == "cervical_anatomical_hrnet"
+    assert result["qc"]["models"]["cervical"] == "cervical_slope_hrnet"
     assert result["qc"]["provenance"]["training_dataset"] == "CSXA"
     assert result["qc"]["warnings"] == ["Review predicted cervical landmarks."]
     assert result["qc"]["processing"]["crop_localizer"] is False
@@ -149,10 +149,10 @@ def test_empty_cervical_geometry_can_be_saved_but_malformed_geometry_is_rejected
 def test_cervical_models_are_opt_in_and_lumbar_models_unchanged():
     client = TestClient(server.app)
     assert client.get("/models?body_part=cervical").json() == {
-        "vertebrae": ["cervical_anatomical_hrnet"], "femoral": [], "s1": [],
+        "vertebrae": ["cervical_slope_hrnet"], "femoral": [], "s1": [],
     }
     assert client.get("/models").json() == {
-        "vertebrae": ["unet", "hrnet"], "femoral": ["unet"], "s1": ["keypointrcnn"],
+        "vertebrae": ["hrnet"], "femoral": ["unet"], "s1": ["keypointrcnn"],
     }
     assert client.get("/models?body_part=thoracic").status_code == 422
 
@@ -166,4 +166,4 @@ def test_cervical_does_not_require_manual_orientation(monkeypatch, side):
     if side is not None:data["anterior_side"]=side
     response=TestClient(server.app).post("/predict", data=data, files={"file":("cervical.png",upload(),"image/png")})
     assert response.status_code==200
-    assert observed[0][2]=="cervical_anatomical_hrnet"
+    assert observed[0][2]=="cervical_slope_hrnet"

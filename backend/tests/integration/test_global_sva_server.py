@@ -194,5 +194,5 @@ def test_measure_global_sva_edits_anchors_and_respects_current_scale_clear():
 def test_model_choices_expose_full_spine_without_changing_regional_models():
     client = TestClient(server.app)
     assert client.get("/models?body_part=full_spine").json() == {"vertebrae": ["dual_hrnet"], "femoral": [], "s1": []}
-    assert client.get("/models?body_part=cervical").json() == {"vertebrae": ["cervical_anatomical_hrnet"], "femoral": [], "s1": []}
-    assert client.get("/models").json() == {"vertebrae": ["unet", "hrnet"], "femoral": ["unet"], "s1": ["keypointrcnn"]}
+    assert client.get("/models?body_part=cervical").json() == {"vertebrae": ["cervical_slope_hrnet"], "femoral": [], "s1": []}
+    assert client.get("/models").json() == {"vertebrae": ["hrnet"], "femoral": ["unet"], "s1": ["keypointrcnn"]}

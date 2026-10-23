@@ -38,7 +38,7 @@ export function landmarkReviewReasons(qc) {
     for (const warning of qc?.warnings ?? []) if (typeof warning === 'string' && !reasons.includes(warning)) reasons.push(warning);
     return reasons;
   }
-  if (['cervical_hrnet', 'cervical_anatomical_hrnet'].includes(qc?.models?.vertebrae) || ['cervical_hrnet', 'cervical_anatomical_hrnet'].includes(qc?.models?.cervical)) {
+  if (['cervical_slope_hrnet', 'cervical_hrnet', 'cervical_anatomical_hrnet'].includes(qc?.models?.vertebrae) || ['cervical_slope_hrnet', 'cervical_hrnet', 'cervical_anatomical_hrnet'].includes(qc?.models?.cervical)) {
     if (qc?.coverage?.partial) reasons.push('Partial cervical landmarks — only available measurements are shown.');
     if (qc?.manual_edits?.landmarks) reasons.push('Manually edited landmarks — verify the corrected positions.');
     reasons.push('Verify C2/C7 landmarks and the inferred anterior image side.');

@@ -396,7 +396,7 @@ export async function segmentStudy(studyId, { batch = false } = {}) {
       anteriorSide: studyRegion(current) === 'cervical' ? null : current.anteriorSide ?? null,
       view,
       ...(requestedRegion(current) === 'auto' ? {} : { models: requestedRegion(current) === 'cervical'
-        ? { vertebrae: 'cervical_anatomical_hrnet' } : requestedRegion(current) === 'full_spine'
+        ? { vertebrae: 'cervical_slope_hrnet' } : requestedRegion(current) === 'full_spine'
         ? { vertebrae: 'dual_hrnet' } : getState().models }),
       calibration: calibrationForStudy(current),
     });

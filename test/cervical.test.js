@@ -153,7 +153,7 @@ test('single/batch cervical run ignores saved manual orientation and requests an
     setFilePayload(s.id, new Uint8Array([1]));
     const result = await segmentStudy(s.id, { batch: true });
     assert.equal(result.ok, false); assert.equal(request.bodyPart, 'cervical');
-    assert.deepEqual(request.models, { vertebrae: 'cervical_anatomical_hrnet' }); assert.equal(request.anteriorSide, null);
+    assert.deepEqual(request.models, { vertebrae: 'cervical_slope_hrnet' }); assert.equal(request.anteriorSide, null);
   } finally { globalThis.window = oldWindow; setState(saved); }
 });
 
