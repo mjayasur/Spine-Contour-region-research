@@ -40,6 +40,11 @@ adapter. The app's processor menu discovers NVIDIA devices by UUID and passes
 the selected device to the same inference code used by the validation runner.
 The ordinary DirectML and macOS CPU runtimes remain supported.
 
+The Windows preview workflow accepts `accelerator=cuda` and bundles the NVIDIA
+runtime and its libraries into the desktop installer. CUDA builds are review
+artifacts and cannot replace the ordinary preview release. GPU execution still
+requires an NVIDIA driver on the destination machine.
+
 CUDA sessions budget 92% of currently free device memory. Dynamic HRNet batches
 start with all available crop candidates, halve after allocation failure, and
 retry the same rows in order. A one-row failure releases inactive model sessions and retries the stage on
