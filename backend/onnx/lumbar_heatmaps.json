@@ -1,0 +1,18 @@
+{
+  "kind": "lumbar_heatmaps",
+  "checkpoint_epoch": 45,
+  "precision": "float32",
+  "checkpoint_sha256": "aa0f97a7f8dfe478b443ee6e87590185d5cd9278342538e8d4c67f7bdc243df9",
+  "onnx_sha256": "972546f4b325820013c4b0c652902f8b5f4c74b2ab65023ae9409487f67942fa",
+  "dynamic_batch": true,
+  "checks": [
+    {
+      "batch": 1,
+      "max_heatmap_error": 3.7588179111480713e-06
+    },
+    {
+      "batch": 2,
+      "max_heatmap_error": 3.7588179111480713e-06
+    }
+  ]
+}

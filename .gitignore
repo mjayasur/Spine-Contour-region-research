@@ -15,3 +15,10 @@ artifacts/
 backend/onnx/*
 !backend/onnx/cervical_anatomical_hrnet.onnx
 !backend/onnx/cervical_anatomical_hrnet.json
+
+!backend/onnx/cervical_slope_hrnet.onnx
+!backend/onnx/cervical_slope_hrnet.json
+!backend/onnx/lumbar_heatmaps.onnx
+!backend/onnx/lumbar_heatmaps.json
+!backend/onnx/s1_batch.onnx
+!backend/onnx/s1_batch.json

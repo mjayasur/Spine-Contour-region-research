@@ -58,6 +58,10 @@ def decoded(kind, cpu, gpu, feeds):
         return False
     if kind == 'hrnet':
         return bool(np.max(np.abs(cpu[0] - gpu[0]), initial=0) <= .05)
+    if kind in ('lumbar_heatmaps', 'cervical_slope_hrnet'):
+        from .decoders import local_coordinates
+        a, b = [local_coordinates(v[0], unique_boundary=kind == 'cervical_slope_hrnet') for v in (cpu, gpu)]
+        return bool(np.max(np.abs(a-b), initial=0) <= .0125)
     if kind == 's1':
         return bool(np.max(np.abs(cpu[1][..., :2] - gpu[1][..., :2]), initial=0) <= .05)
     if kind in ('cervical_hrnet', 'cervical_anatomical_hrnet'):
@@ -107,7 +111,7 @@ def probes(kind):
         yield 'zeros', {'pixel_values': np.zeros((1, 3, 800, 800), np.float32), 'pixel_mask': np.ones((1, 800, 800), np.int64)}
     else:
         if kind == 'cervical_hrnet': shape = (1, 3, 384, 384)
-        if kind == 'cervical_anatomical_hrnet': shape = (1, 3, 512, 384)
+        if kind in ('cervical_anatomical_hrnet', 'cervical_slope_hrnet'): shape = (1, 3, 512, 384)
         yield 'zeros', {'image': np.zeros(shape, np.float32)}
     rng = np.random.default_rng(40)
     y, x = np.mgrid[:768, :768]
@@ -116,7 +120,7 @@ def probes(kind):
     for name, image in zip(('blank_preprocessed', 'noise_preprocessed', 'smooth_preprocessed'), images):
         if kind == 'cervical_detr':
             feed = cervical.detector_input(image)
-        elif kind == 'cervical_anatomical_hrnet':
+        elif kind in ('cervical_anatomical_hrnet', 'cervical_slope_hrnet'):
             from .models.cervical_anatomical import landmark_input
             feed = {'image': landmark_input(image)[0]}
         elif kind == 'cervical_hrnet':
@@ -170,6 +174,8 @@ def _hash(path, size, mtime):
 def fingerprint(gpu):
     hashes = {}
     for kind in models.MODEL_NAMES:
+        if kind == 's1_batch':
+            continue  # CUDA-only throughput graph; DirectML uses the single detector.
         path = models.ONNX_DIRECTORY / f'{kind}.onnx'; stat = path.stat()
         hashes[kind] = _hash(str(path), stat.st_size, stat.st_mtime_ns)
     # Read live driver versions rather than ORT's cached device metadata. If this
@@ -193,6 +199,8 @@ def verify_gpu(gpu):
         threads = runtime.Options().inference_threads
         with tempfile.TemporaryDirectory(prefix='spine-gpu-parity-') as directory:
             for kind in models.MODEL_NAMES:
+                if kind == 's1_batch':
+                    continue
                 runtime.checkpoint()
                 runtime.report('gpu_verification', f'Checking GPU against CPU: {models.MODEL_NAMES[kind]}')
                 for low in ([False, True] if kind in ('vertebra', 's1') else [False]):

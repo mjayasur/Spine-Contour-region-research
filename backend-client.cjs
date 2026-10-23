@@ -2,7 +2,7 @@ const http = require('node:http');
 
 // 'cpu', or a GPU's PCI identity as backend/processors.py names it. The same pattern is in
 // renderer/data/processing.js, which cannot require this file.
-const PROCESSOR_ID = /^(?:cpu|gpu:[0-9a-f]{4,8}:[0-9a-f]{4,8}(?::(?:[2-9]|[1-9][0-9]))?)$/;
+const PROCESSOR_ID = /^(?:cpu|cuda:GPU-[0-9a-fA-F-]+|gpu:[0-9a-f]{4,8}:[0-9a-f]{4,8}(?::(?:[2-9]|[1-9][0-9]))?)$/;
 
 function normalizePerformance(value) {
   const mode = value?.mode ?? 'standard';

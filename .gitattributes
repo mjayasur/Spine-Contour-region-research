@@ -2,3 +2,7 @@ backend/weights/*.pt filter=lfs diff=lfs merge=lfs -text
 backend/weights/cervical_detr/*.safetensors filter=lfs diff=lfs merge=lfs -text
 
 backend/onnx/cervical_anatomical_hrnet.onnx filter=lfs diff=lfs merge=lfs -text
+
+backend/onnx/cervical_slope_hrnet.onnx filter=lfs diff=lfs merge=lfs -text
+backend/onnx/lumbar_heatmaps.onnx filter=lfs diff=lfs merge=lfs -text
+backend/onnx/s1_batch.onnx filter=lfs diff=lfs merge=lfs -text

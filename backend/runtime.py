@@ -45,8 +45,7 @@ class Options:
 
     @property
     def search_batch(self):
-        # The ONNX detector has a fixed batch of one in both resource modes.
-        return 1
+        return 4 if not self.low_memory and processor().provider == processors.CUDA else 1
 
     @property
     def ocr_timeout(self):
@@ -82,6 +81,7 @@ _providers = ContextVar("processing_providers", default=None)
 _processor = ContextVar("processing_processor", default=(processors.CPU, None))
 _qualification = ContextVar("gpu_qualification", default=None)
 _fallbacks = ContextVar("gpu_fallbacks", default=None)
+_batches = ContextVar("gpu_batches", default=None)
 _lock = threading.Lock()
 
 
@@ -119,6 +119,19 @@ def providers():
     return dict(_providers.get() or {})
 
 
+def record_batch(kind, size, retries):
+    records = _batches.get()
+    if records is not None:
+        record = records.setdefault(kind, {'max_batch': 0, 'oom_retries': 0, 'rows': 0})
+        record['max_batch'] = max(record['max_batch'], size)
+        record['oom_retries'] += retries
+        record['rows'] += size
+
+
+def batches():
+    return {key: dict(value) for key, value in (_batches.get() or {}).items()}
+
+
 def processor():
     """The processor this request's model sessions are created for."""
     return _processor.get()[0]
@@ -153,7 +166,7 @@ def session(settings=None, reporter=None, cancelled=None):
     settings = settings or Options()
     tokens = (_options.set(settings), _reporter.set(reporter), _cancel.set(cancelled), _last_progress.set(None),
               _providers.set({}), _processor.set((processors.CPU, None)),
-              _qualification.set(None), _fallbacks.set(None))
+              _qualification.set(None), _fallbacks.set(None), _batches.set({}))
     acquired = False
     try:
         report("waiting", "Waiting for the processing worker")
@@ -177,3 +190,4 @@ def session(settings=None, reporter=None, cancelled=None):
         _processor.reset(tokens[5])
         _qualification.reset(tokens[6])
         _fallbacks.reset(tokens[7])
+        _batches.reset(tokens[8])

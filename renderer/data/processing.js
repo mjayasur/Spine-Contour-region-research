@@ -1,7 +1,7 @@
 export const DEFAULT_PERFORMANCE = Object.freeze({ mode: 'standard', cpuThreads: 2, cropLocalizer: true, cropMethod: 'search', viewSelection: 'landmarks', toolbarRemoval: false, processor: 'cpu' });
 
 // 'cpu', or a GPU's PCI identity as backend/processors.py names it (mirrors backend-client.cjs).
-const PROCESSOR_ID = /^(?:cpu|gpu:[0-9a-f]{4,8}:[0-9a-f]{4,8}(?::(?:[2-9]|[1-9][0-9]))?)$/;
+const PROCESSOR_ID = /^(?:cpu|cuda:GPU-[0-9a-fA-F-]+|gpu:[0-9a-f]{4,8}:[0-9a-f]{4,8}(?::(?:[2-9]|[1-9][0-9]))?)$/;
 
 export function validPerformance(value) {
   return value && ['standard', 'low-memory'].includes(value.mode)

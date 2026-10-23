@@ -19,6 +19,8 @@ import numpy as np
 import onnxruntime as ort
 
 ort.disable_telemetry_events()
+if "CUDAExecutionProvider" in ort.get_available_providers() and hasattr(ort, "preload_dlls"):
+    ort.preload_dlls(directory="")
 
 try:
     from .. import processors, runtime, learned_region
@@ -143,9 +145,21 @@ def _robust_rescale(pixel_array: np.ndarray) -> np.ndarray:
     if not finite.any():
         return np.zeros(image.shape, dtype=np.uint8)
     image[~finite] = float(np.median(image[finite]))
-    foreground = image[image > 0]
-    values = foreground if foreground.size >= 100 else image.reshape(-1)
-    low, high = np.percentile(values, (0.5, 99.5))
+    if array.dtype == np.uint8:
+        # Exact order statistics from a 256-bin histogram avoid partitioning
+        # every large source crop. Keep NumPy's linear percentile convention.
+        counts = np.bincount(array.reshape(-1), minlength=256)
+        if counts[1:].sum() >= 100:
+            counts[0] = 0
+        cumulative = counts.cumsum()
+        positions = (cumulative[-1]-1)*np.array([.005, .995])
+        lower = np.searchsorted(cumulative, np.floor(positions)+1)
+        upper = np.searchsorted(cumulative, np.ceil(positions)+1)
+        low, high = lower+(upper-lower)*(positions-np.floor(positions))
+    else:
+        foreground = image[image > 0]
+        values = foreground if foreground.size >= 100 else image.reshape(-1)
+        low, high = np.percentile(values, (0.5, 99.5))
     if high <= low + 1:
         return np.clip(image, 0, 255).astype(np.uint8)
     return np.clip((image - low) * (255.0 / (high - low)), 0, 255).astype(np.uint8)
@@ -167,7 +181,7 @@ def _letterbox(image: np.ndarray) -> tuple[np.ndarray, LetterboxTransform]:
 
 
 ONNX_DIRECTORY = Path(__file__).resolve().parent.parent / "onnx"
-MODEL_NAMES = {"s1": "S1 detector", "vertebra": "vertebra model",
+MODEL_NAMES = {"s1_batch": "Batched S1 detector", "lumbar_heatmaps": "Lumbar HRNet heatmaps", "cervical_slope_hrnet": "Cervical slope HRNet", "s1": "S1 detector", "vertebra": "vertebra model",
                "femoral": "femoral-head model", "hrnet": "HRNet landmark model",
                "cervical_detr": "cervical detector",
                "cervical_anatomical_hrnet": "anatomical cervical landmarks",
@@ -191,7 +205,7 @@ def session_options(policy):
     return settings
 
 
-@lru_cache(maxsize=4)
+@lru_cache(maxsize=12)
 def _load_model(kind, policy):
     if kind not in MODEL_NAMES:
         raise ValueError(f"unknown model kind: {kind}")
@@ -203,7 +217,15 @@ def _load_model(kind, policy):
     if adapter is not None:
         runtime.report("loading", f"Loading {MODEL_NAMES[kind]} on {runtime.processor().name}")
         # DirectML takes Windows' adapter index. Nodes it cannot run stay on the CPU provider.
-        providers.insert(0, (processors.DIRECTML, {"device_id": str(adapter), "disable_metacommands": "True"}))
+        if runtime.processor().provider == processors.CUDA:
+            from ..gpu_batch import devices
+            device = next((d for d in devices() if d["index"] == adapter), None)
+            budget = max(256*1024**2, int(device["free"]*.92)) if device else 2*1024**3
+            providers.insert(0, (processors.CUDA, {"device_id": str(adapter), "gpu_mem_limit": str(budget),
+                             "arena_extend_strategy": "kSameAsRequested", "cudnn_conv_algo_search": "HEURISTIC",
+                             "use_tf32": "1"}))
+        else:
+            providers.insert(0, (processors.DIRECTML, {"device_id": str(adapter), "disable_metacommands": "True"}))
         return InferenceModel(path, policy, providers)
     runtime.report("loading", f"Loading {MODEL_NAMES[kind]}")
     # Apple's CPU implementation is faster than generic ARM kernels for this
@@ -236,6 +258,8 @@ class InferenceModel:
     """
     def __init__(self, path, policy, providers):
         self.path, self.policy = path, policy
+        self.batch_limit = None
+        self.batch_stats = {"max_batch": 0, "oom_retries": 0}
         first = providers[0]
         self.accelerator = None if len(providers) == 1 else first[0] if isinstance(first, tuple) else first
         try:
@@ -249,14 +273,14 @@ class InferenceModel:
         # ONNX Runtime's own retry would fall back silently, with only a banner on stdout.
         session = ort.InferenceSession(str(self.path), sess_options=session_options(self.policy),
                                        providers=providers, enable_fallback=0)
-        if self.accelerator == processors.DIRECTML and session.get_providers()[0] != processors.DIRECTML:
-            raise RuntimeError("DirectML session unexpectedly registered only CPU providers")
+        if self.accelerator in (processors.DIRECTML, processors.CUDA) and session.get_providers()[0] != self.accelerator:
+            raise RuntimeError(f"{self.accelerator} session unexpectedly registered only CPU providers")
         return session
 
     def _accelerator_failure(self, error, creating=False):
         runtime.checkpoint()
         logging.getLogger(__name__).exception("%s failed for %s", self.accelerator, self.path.stem)
-        if self.accelerator == processors.DIRECTML:
+        if self.accelerator in (processors.DIRECTML, processors.CUDA):
             raise runtime.GpuFailure(self.path.stem, f"{type(error).__name__}: {error}") from error
         if not creating and not isinstance(error, ort.capi.onnxruntime_pybind11_state.Fail):
             raise error
@@ -273,7 +297,16 @@ class InferenceModel:
 
     def run(self, output_names, inputs):
         try:
-            return self.session.run(output_names, inputs)
+            if self.path.stem not in ("lumbar_heatmaps", "cervical_slope_hrnet"):
+                return self.session.run(output_names, inputs)
+            from ..gpu_batch import run
+            def record(size, retries, limit):
+                runtime.record_batch(self.path.stem, size, retries)
+                self.batch_stats["max_batch"] = max(size, self.batch_stats["max_batch"])
+                self.batch_stats["oom_retries"] += retries
+                if retries:
+                    self.batch_limit = limit
+            return run(self.session, output_names, inputs, batch_limit=self.batch_limit, report=record)
         except Exception as error:
             if self.get_providers() == ["CPUExecutionProvider"]:
                 raise
@@ -296,10 +329,14 @@ _GRAPHS_BY_MODEL = {
     ("femoral", "unet"): ("femoral",),
     "keypointrcnn": ("s1",),
     "hrnet": ("hrnet",),
+    "lumbar_heatmaps": ("lumbar_heatmaps",),
+    "cervical_slope_hrnet": ("cervical_slope_hrnet",),
     "cervical_hrnet": ("cervical_hrnet",),
     "cervical_anatomical_hrnet": ("cervical_anatomical_hrnet",),
     "cervical_detr": ("cervical_detr",),
     "dual_hrnet": ("cervical_hrnet", "hrnet"),
+    "seven-measurements-20261023": ("cervical_slope_hrnet", "cervical_anatomical_hrnet",
+                                   "lumbar_heatmaps", "s1", "femoral", "cervical_detr", "cervical_hrnet", "hrnet"),
 }
 
 
@@ -340,13 +377,33 @@ def _infer(kind, operation, message):
     cache_policy = (policy, runtime.processor().id)
     if cache_policy != _cache_policy or (options.low_memory and key != _resident_key):
         release_models()
-    model = _load_model(kind, policy)
+    try:
+        model = _load_model(kind, policy)
+    except runtime.GpuFailure as error:
+        from ..gpu_batch import allocation_failure
+        if runtime.processor().provider != processors.CUDA or not allocation_failure(error):
+            raise
+        release_models()
+        runtime.record_batch(kind, 0, 1)
+        runtime.report('gpu_memory', 'Releasing inactive models and retrying GPU model loading')
+        model = _load_model(kind, policy)
     _resident_key, _cache_policy = key, cache_policy
     if message is not None:
         runtime.report(kind, message)
     elif previous_progress is not None:
         runtime.report(**{key: previous_progress[key] for key in ('stage', 'message', 'completed', 'total')})
-    result = operation(model)
+    try:
+        result = operation(model)
+    except runtime.GpuFailure as error:
+        from ..gpu_batch import allocation_failure
+        if runtime.processor().provider != processors.CUDA or not allocation_failure(error):
+            raise
+        # Keep this model alive, free other cached sessions, and retry the whole
+        # stage once. Nothing from the failed attempt is returned to the caller.
+        release_models()
+        runtime.record_batch(kind, 0, 1)
+        runtime.report('gpu_memory', 'Releasing inactive models and retrying the GPU stage')
+        result = operation(model)
     runtime.record_providers(kind, model.get_providers())
     runtime.checkpoint()
     return result
@@ -445,6 +502,29 @@ def _score_s1(letterboxed):
             runtime.checkpoint()
             results.append(_detect(session, image))
         return results
+    if (runtime.processor().provider == processors.CUDA and runtime.processor().kind == "gpu"
+            and not runtime.options().low_memory and len(letterboxed) > 1
+            and (ONNX_DIRECTORY / 's1_batch.onnx').is_file()):
+        def batched(session):
+            results = []
+            for start in range(0, len(letterboxed), 4):
+                group = letterboxed[start:start+4]
+                tensors = [_detection_input(image) for image in group]
+                tensors += [tensors[-1]] * (4-len(tensors))
+                scores, points = session.run(None, {'image': np.concatenate(tensors)})
+                results.extend(_s1_from_output({'scores': scores[i:i+1], 'keypoints': points[i:i+1]})
+                               for i in range(len(group)))
+                runtime.record_batch('s1_batch', len(group), 0)
+            return results
+        try:
+            return _infer('s1_batch', batched, None)
+        except runtime.GpuFailure as error:
+            from ..gpu_batch import allocation_failure
+            if not allocation_failure(error):
+                raise
+            release_models()
+            runtime.record_batch('s1_batch', 0, 1)
+            runtime.report('gpu_memory', 'Retrying S1 detection one crop at a time on the GPU')
     return _infer("s1", score, None)
 
 

@@ -1,0 +1,7 @@
+{
+  "kind": "s1_batch",
+  "batch": 4,
+  "checkpoint_sha256": "04c96dbd53a882d7cd387c0499f0526b23d364da7e7b8ca29ccf0378292130d2",
+  "onnx_sha256": "415c3fb0e0d3a57ddf972500443e9094075ca9ba381411dd190995d209abdc14",
+  "precision": "float32"
+}

@@ -16,14 +16,20 @@ def verify(gpu=None, parity_films=None):
     with runtime.session(runtime.parse_options('low-memory', 1, False)):
         for kind in models.MODEL_NAMES:
             path = models.ONNX_DIRECTORY / f'{kind}.onnx'
+            if kind == 's1_batch' and not path.is_file():
+                continue
             metadata = json.loads(path.with_suffix('.json').read_text())
             assert metadata['kind'] == kind and metadata['precision'] == 'float32'
             assert hashlib.sha256(path.read_bytes()).hexdigest() == metadata['onnx_sha256']
             if kind == 'cervical_detr':
                 inputs = {'pixel_values': np.zeros((1, 3, 800, 800), np.float32),
                           'pixel_mask': np.ones((1, 800, 800), np.int64)}
-            elif kind == 'cervical_anatomical_hrnet':
+            elif kind in ('cervical_anatomical_hrnet', 'cervical_slope_hrnet'):
                 inputs = {'image': np.zeros((1, 3, 512, 384), np.float32)}
+            elif kind == 'lumbar_heatmaps':
+                inputs = {'image': np.zeros((1, 1, 768, 768), np.float32)}
+            elif kind == 's1_batch':
+                inputs = {'image': np.zeros((4, 3, 768, 768), np.float32)}
             elif kind == 'cervical_hrnet':
                 inputs = {'image': np.zeros((1, 3, 384, 384), np.float32)}
             else:
@@ -33,14 +39,16 @@ def verify(gpu=None, parity_films=None):
                 inputs = {'image': np.zeros(shape, np.float32)}
             output = models._infer(kind, lambda session: session.run(None, inputs), None)
             assert all(np.isfinite(value).all() for value in output)
-            if kind == 's1':
+            if kind in ('s1', 's1_batch'):
                 assert output[0].ndim == 1 and output[1].shape == (len(output[0]), 2, 3)
             elif kind == 'cervical_detr':
                 assert output[0].shape == (1, 100, 2) and output[1].shape == (1, 100, 4)
             else:
                 expected = {'vertebra': (1, 6, 768, 768),
                             'femoral': (1, 1, models.FEMORAL_IMAGE_SIZE, models.FEMORAL_IMAGE_SIZE),
-                            'hrnet': (1, 22, 2), 'cervical_hrnet': (1, 23, 96, 96), 'cervical_anatomical_hrnet': (1, 23, 128, 96)}[kind]
+                            'hrnet': (1, 22, 2), 'cervical_hrnet': (1, 23, 96, 96),
+                            'cervical_anatomical_hrnet': (1, 23, 128, 96),
+                            'cervical_slope_hrnet': (1, 23, 128, 96), 'lumbar_heatmaps': (1, 22, 192, 192)}[kind]
                 assert output[0].shape == expected
             results[kind] = [list(value.shape) for value in output]
         models.release_models()

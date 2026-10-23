@@ -213,7 +213,7 @@ def run_prediction(request, reporter=None, cancelled=None):
             release_models()
         try:
             try:
-                if runtime.processor().kind == "gpu":
+                if runtime.processor().kind == "gpu" and runtime.processor().provider == processors.DIRECTML:
                     try:
                         from .gpu_parity import ensure_verified
                     except ImportError:  # uvicorn server:app from backend/

@@ -1,0 +1,18 @@
+{
+  "kind": "cervical_slope_hrnet",
+  "checkpoint_epoch": 12,
+  "precision": "float32",
+  "checkpoint_sha256": "ca6d50a17fe69aaec6b0e391af1bf505b4029170470783854b51c0415663ec9b",
+  "onnx_sha256": "c2bfd5851793ad1e9a62b4c58e9dd3f2a391fd05b8afdd8e786074e2efc3c577",
+  "dynamic_batch": true,
+  "checks": [
+    {
+      "batch": 1,
+      "max_heatmap_error": 5.960464477539062e-07
+    },
+    {
+      "batch": 2,
+      "max_heatmap_error": 5.960464477539062e-07
+    }
+  ]
+}

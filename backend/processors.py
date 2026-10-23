@@ -24,6 +24,7 @@ import uuid
 
 import onnxruntime as ort
 
+CUDA = "CUDAExecutionProvider"
 DIRECTML = "DmlExecutionProvider"
 NOT_FOUND = "The selected GPU was not found; running the models on the CPU"
 # Windows' software renderer (WARP). DirectML refuses it by these ids whether or not DXGI
@@ -39,6 +40,7 @@ class Processor:
     name: str
     adapter: int | None = None
     memory_mb: int | None = None
+    provider: str = DIRECTML
 
     def public(self):
         return {"id": self.id, "kind": self.kind, "name": self.name, "memory_mb": self.memory_mb}
@@ -48,7 +50,7 @@ CPU = Processor("cpu", "cpu", "CPU")
 
 
 def valid(processor) -> bool:
-    return isinstance(processor, str) and (processor == CPU.id or _GPU_ID.fullmatch(processor) is not None)
+    return isinstance(processor, str) and (processor == CPU.id or re.fullmatch(r"cuda:GPU-[0-9a-fA-F-]+", processor) is not None or _GPU_ID.fullmatch(processor) is not None)
 
 
 def _name(hardware, metadata):
@@ -78,6 +80,11 @@ def available() -> list[Processor]:
     This is ONNX Runtime's list, read when the backend first asks for it: a GPU added
     or given a driver later is offered after the app restarts.
     """
+    if CUDA in ort.get_available_providers():
+        from .gpu_batch import devices as cuda_devices
+        found = cuda_devices()
+        if found:
+            return [CPU] + [Processor("cuda:"+d["uuid"], "gpu", d["name"], d["index"], d["total"]//(1024**2), CUDA) for d in found]
     try:
         devices = ort.get_ep_devices()
     except Exception:  # A runtime without device discovery can still use the CPU.
@@ -109,6 +116,8 @@ def resolve(requested: str) -> tuple[Processor, str | None]:
     listed = next((processor for processor in available() if processor.id == requested), None)
     if listed is None:
         return CPU, NOT_FOUND
+    if listed.provider == CUDA:
+        return listed, None
     try:
         current = _identities(_dxgi_adapters())
     except Exception:
