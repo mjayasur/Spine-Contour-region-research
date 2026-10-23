@@ -3,6 +3,12 @@ name: Windows preview installer
 # Deliberately NOT [main]. This workflow must never run on the production
 # branch, and must never touch the latest-windows release.
 on:
+  pull_request:
+    paths:
+      - backend/requirements-cuda.txt
+      - backend/gpu_batch.py
+      - backend/models/models.py
+      - .github/workflows/windows-preview.yml
   push:
     branches: [ui-redesign-cw]
   workflow_dispatch:
@@ -20,6 +26,9 @@ on:
 
 permissions:
   contents: write
+
+env:
+  PREVIEW_ACCELERATOR: ${{ github.event_name == 'pull_request' && 'cuda' || inputs.accelerator || 'directml' }}
 
 # Separate group. Sharing latest-windows would cancel in-flight production builds.
 concurrency:
@@ -70,7 +79,7 @@ jobs:
         run: python tools/export_onnx.py
 
       - name: Install NVIDIA application runtime
-        if: inputs.accelerator == 'cuda'
+        if: env.PREVIEW_ACCELERATOR == 'cuda'
         run: |
           python -m pip uninstall -y onnxruntime onnxruntime-directml
           python -m pip install -r backend/requirements-cuda.txt
@@ -112,7 +121,7 @@ jobs:
           --workpath build/pyinstaller
           --paths .
           --collect-all onnxruntime
-          ${{ inputs.accelerator == 'cuda' && '--collect-all nvidia' || '' }}
+          ${{ env.PREVIEW_ACCELERATOR == 'cuda' && '--collect-all nvidia' || '' }}
           --exclude-module torch
           --exclude-module torchvision
           --exclude-module timm
@@ -225,12 +234,12 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: ${{ inputs.accelerator == 'cuda' && 'Spine-Contour-Preview-Windows-NVIDIA' || 'Spine-Contour-Preview-Windows' }}
+          name: ${{ env.PREVIEW_ACCELERATOR == 'cuda' && 'Spine-Contour-Preview-Windows-NVIDIA' || 'Spine-Contour-Preview-Windows' }}
           path: dist/Spine-Contour-Preview-Windows.exe
           compression-level: 0
 
       - name: Publish preview release
-        if: inputs.accelerator != 'cuda' && github.ref == 'refs/heads/ui-redesign-cw' && (github.event_name == 'push' || inputs.publish)
+        if: env.PREVIEW_ACCELERATOR != 'cuda' && github.ref == 'refs/heads/ui-redesign-cw' && (github.event_name == 'push' || inputs.publish)
         env:
           GH_TOKEN: ${{ github.token }}
         run: python tools/packaging/publish_preview.py windows
